@@ -1,0 +1,58 @@
+import telebot
+import statistics
+import numpy as np
+from sklearn.linear_model import LinearRegression
+
+TOKEN = "7271325054:AAEp3S1Jj15JUr-cWRX5ZK7pP359kgA8XKY"
+bot = telebot.TeleBot(TOKEN)
+
+user_data = {}
+
+def predict_next(crash_history):
+    X = np.array(range(len(crash_history))).reshape(-1, 1)
+    y = np.array(crash_history).reshape(-1, 1)
+    model = LinearRegression()
+    model.fit(X, y)
+    next_index = np.array([[len(crash_history)]])
+    prediction = model.predict(next_index)[0][0]
+
+    avg = sum(crash_history) / len(crash_history)
+    std_dev = statistics.stdev(crash_history) if len(crash_history) > 1 else 0
+
+    high_jump = crash_history[-1] >= 10
+    low_streak = all(val < 2 for val in crash_history[-3:])
+
+    if prediction >= 2.2 and not low_streak:
+        return prediction, "ادخل الجولة القادمة", "التحليل يشير إلى فرصة قوية"
+    elif high_jump:
+        return prediction, "انتظر جولتين وادخل", "بعد قفزة عالية، غالبًا يحدث انخفاض"
+    else:
+        return prediction, "لا تدخل الجولة القادمة", "الاحتمال ضعيف والخطر مرتفع"
+
+@bot.message_handler(commands=['start'])
+def start_handler(message):
+    user_data[message.chat.id] = []
+    bot.send_message(message.chat.id, "أرسل نتائج لعبة Crash واحدة تلو الأخرى.\nعند إدخال 10 نتائج، سيتم إعطاؤك التوقع.")
+
+@bot.message_handler(func=lambda message: True)
+def result_handler(message):
+    try:
+        val = float(message.text.replace(",", "."))
+    except ValueError:
+        bot.send_message(message.chat.id, "يرجى إرسال رقم صالح (مثال: 1.23)")
+        return
+
+    user_data.setdefault(message.chat.id, []).append(val)
+
+    if len(user_data[message.chat.id]) < 10:
+        bot.send_message(message.chat.id, f"تم حفظ النتيجة رقم {len(user_data[message.chat.id])}/10. أرسل التالية.")
+    else:
+        history = user_data[message.chat.id]
+        prediction, decision, reason = predict_next(history)
+        bot.send_message(message.chat.id, f"""📊 تم التحليل:
+التوقع القادم: {round(prediction, 2)}
+القرار: {decision}
+السبب: {reason}""")
+        user_data[message.chat.id] = []
+
+bot.polling()
